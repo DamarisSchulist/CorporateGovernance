@@ -1,0 +1,23 @@
+{
+  "name": "board-resolution-system",
+  "version": "1.0.0",
+  "description": "Private Corporate Governance Board Resolution System with FHE encryption",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'Static files ready for deployment'",
+    "start": "echo 'Static files served by Vercel'",
+    "dev": "npx http-server . -p 3000 --cors -c-1",
+    "deploy": "vercel --prod",
+    "preview": "vercel --local"
+  },
+  "keywords": ["board", "governance", "FHE", "voting", "privacy", "corporate", "blockchain", "web3"],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/board-resolution-system.git"
+  }
+}
