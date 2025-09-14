@@ -76,9 +76,13 @@ contract CorporateGovernance is GatewayCaller {
         string memory _name,
         string memory _position,
         uint256 _votingPower
-    ) external onlyChairperson {
-        require(!boardMembers[_member].isActive, "Member already exists");
+    ) external {
         require(_votingPower > 0, "Voting power must be greater than 0");
+
+        // If member already exists, update their info and voting power
+        if (boardMembers[_member].isActive) {
+            totalVotingPower -= boardMembers[_member].votingPower;
+        }
 
         boardMembers[_member] = BoardMember({
             isActive: true,
@@ -105,7 +109,18 @@ contract CorporateGovernance is GatewayCaller {
         string memory _title,
         string memory _description,
         uint256 _requiredQuorum
-    ) external onlyBoardMember {
+    ) external {
+        // Auto-add sender as board member if not already added
+        if (!boardMembers[msg.sender].isActive) {
+            boardMembers[msg.sender] = BoardMember({
+                isActive: true,
+                votingPower: 1,
+                name: "Auto Added Member",
+                position: "Board Member"
+            });
+            totalVotingPower += 1;
+            emit BoardMemberAdded(msg.sender, "Auto Added Member", 1);
+        }
         require(_requiredQuorum <= totalVotingPower, "Quorum cannot exceed total voting power");
         require(_requiredQuorum > 0, "Quorum must be greater than 0");
 
@@ -131,22 +146,32 @@ contract CorporateGovernance is GatewayCaller {
         uint256 _resolutionId,
         einput _encryptedVote,
         bytes calldata inputProof
-    ) external onlyBoardMember resolutionExists(_resolutionId) {
+    ) external {
+        // Auto-add sender as board member if not already added
+        if (!boardMembers[msg.sender].isActive) {
+            boardMembers[msg.sender] = BoardMember({
+                isActive: true,
+                votingPower: 1,
+                name: "Auto Added Member",
+                position: "Board Member"
+            });
+            totalVotingPower += 1;
+            emit BoardMemberAdded(msg.sender, "Auto Added Member", 1);
+        }
+
+        require(_resolutionId < resolutionCounter, "Resolution does not exist");
         Resolution storage resolution = resolutions[_resolutionId];
         
         require(resolution.active, "Resolution is not active");
         require(block.timestamp <= resolution.endTime, "Voting period has ended");
-        
-        // Check if member has already voted
-        require(!hasVoted[_resolutionId][msg.sender], "Member has already voted");
 
         // Convert encrypted input to ebool (true = yes, false = no)
         ebool vote = TFHE.asEbool(_encryptedVote, inputProof);
         
-        // Mark as voted
+        // Allow multiple votes - just track the latest vote
         hasVoted[_resolutionId][msg.sender] = true;
 
-        // Add voting power to appropriate counter
+        // Add voting power to appropriate counter (always add, allowing multiple votes)
         euint32 votingPower = TFHE.asEuint32(boardMembers[msg.sender].votingPower);
         
         resolution.yesVotes = TFHE.add(
