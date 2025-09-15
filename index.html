@@ -62,6 +62,9 @@
                     <button id="connectWallet" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                         Connect Wallet
                     </button>
+                    <button onclick="testContract()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                        Test Contract
+                    </button>
                     <div id="walletInfo" class="hidden bg-gray-700 px-4 py-2 rounded-lg text-sm">
                         <span id="walletAddress">Not Connected</span>
                     </div>
@@ -294,16 +297,35 @@
 
         // Contract configuration - REAL SEPOLIA DEPLOYMENT
         const CONTRACT_ADDRESS = "0x13116d08546b78F5fDB7fA4544f778885B19A441";
+        
+        // Test contract connection
+        async function testContract() {
+            if (!contract) {
+                console.log('No contract connected');
+                return;
+            }
+            
+            try {
+                console.log('Testing contract connection...');
+                const count = await contract.getResolutionCount();
+                console.log('Contract works! Resolution count:', count.toString());
+                showToast('Contract connected successfully', 'success');
+            } catch (error) {
+                console.error('Contract test failed:', error);
+                showToast('Contract connection failed', 'error');
+            }
+        }
         const CONTRACT_ABI = [
             "function addBoardMember(address _member, string memory _name, string memory _position, uint256 _votingPower) external",
             "function removeBoardMember(address _member) external", 
             "function createResolution(string memory _title, string memory _description, uint256 _requiredQuorum) external",
             "function castVote(uint256 _resolutionId, bool _vote) external",
             "function closeResolution(uint256 _resolutionId) external",
-            "function resolutions(uint256) external view returns (uint256 id, string memory title, string memory description, uint256 startTime, uint256 endTime, bool active, bytes32 yesVotes, bytes32 noVotes, address creator, uint256 requiredQuorum)",
-            "function boardMembers(address) external view returns (bool isActive, uint256 votingPower, string memory name, string memory position)",
-            "function totalVotingPower() external view returns (uint256)",
-            "function resolutionCounter() external view returns (uint256)",
+            "function getResolution(uint256 _resolutionId) external view returns (uint256 id, string memory title, string memory description, uint256 startTime, uint256 endTime, bool active, address creator, uint256 requiredQuorum, uint256 yesVotes, uint256 noVotes)",
+            "function getBoardMember(address _member) external view returns (bool isActive, uint256 votingPower, string memory name, string memory position)",
+            "function getTotalVotingPower() external view returns (uint256)",
+            "function getResolutionCount() external view returns (uint256)",
+            "function hasUserVoted(uint256 _resolutionId, address _user) external view returns (bool)",
             "function chairperson() external view returns (address)",
             "event ResolutionCreated(uint256 indexed resolutionId, string title, address creator)",
             "event VoteCast(uint256 indexed resolutionId, address voter)",
@@ -429,6 +451,9 @@
                 await loadResolutions();
                 await loadBoardMembers();
                 
+                // Test contract connection
+                await testContract();
+                
             } catch (error) {
                 console.error('Wallet connection failed:', error);
                 let errorMessage = 'Wallet connection failed ❌';
@@ -538,9 +563,24 @@
                             return;
                         }
                         
+                        console.log('Attempting to add member:', { address, name, position, votingPower });
                         showToast('Adding board member...', 'info');
-                        const tx = await contract.addBoardMember(address, name, position, parseInt(votingPower));
+                        
+                        // Add gas estimation
+                        try {
+                            const gasEstimate = await contract.addBoardMember.estimateGas(address, name, position, parseInt(votingPower));
+                            console.log('Gas estimate for addBoardMember:', gasEstimate.toString());
+                        } catch (gasError) {
+                            console.error('Gas estimation failed:', gasError);
+                        }
+                        
+                        const tx = await contract.addBoardMember(address, name, position, parseInt(votingPower), {
+                            gasLimit: 200000
+                        });
+                        console.log('Add member transaction sent:', tx.hash);
+                        
                         const receipt = await tx.wait();
+                        console.log('Add member receipt:', receipt);
                         
                         if (receipt.status === 1) {
                             showToast('✅ Board member added on blockchain!', 'success');
@@ -597,7 +637,10 @@
         }
 
         async function submitVote() {
-            if (selectedVote === null || !currentResolutionId) return;
+            if (selectedVote === null || !currentResolutionId) {
+                showToast('Please select a vote option', 'error');
+                return;
+            }
             
             try {
                 if (!contract) {
@@ -606,15 +649,34 @@
                     return;
                 }
                 
-                showToast('Submitting vote (FHE encrypted by smart contract)...', 'info');
-                const tx = await contract.castVote(currentResolutionId, selectedVote);
+                console.log('Attempting vote:', { resolutionId: currentResolutionId, vote: selectedVote });
+                showToast('Submitting vote...', 'info');
+                
+                // Try to estimate gas first
+                try {
+                    const gasEstimate = await contract.castVote.estimateGas(currentResolutionId, selectedVote);
+                    console.log('Gas estimate:', gasEstimate.toString());
+                } catch (gasError) {
+                    console.error('Gas estimation failed:', gasError);
+                    showToast('Transaction would fail. Trying anyway...', 'warning');
+                }
+                
+                const tx = await contract.castVote(currentResolutionId, selectedVote, {
+                    gasLimit: 300000 // Generous gas limit
+                });
+                console.log('Transaction sent:', tx.hash);
+                
+                showToast('Waiting for confirmation...', 'info');
                 const receipt = await tx.wait();
+                console.log('Transaction receipt:', receipt);
                 
                 if (receipt.status === 1) {
-                    showToast(`${selectedVote ? 'YES' : 'NO'} vote submitted on blockchain! 🗳️`, 'success');
+                    showToast(`${selectedVote ? 'YES' : 'NO'} vote submitted successfully! 🗳️`, 'success');
                     storeVote(selectedVote, tx.hash);
                     closeVotingModal();
                     await loadResolutions();
+                } else {
+                    showToast('Transaction failed', 'error');
                 }
                 
             } catch (error) {
